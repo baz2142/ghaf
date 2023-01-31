@@ -8,6 +8,7 @@
 
     #### on-host development supporting modules ####
     # drop/replace modules below this line for any real use
+    ../modules/development/apps.nix
     ../modules/development/authentication.nix
     ../modules/development/nix.nix
     ../modules/development/packages.nix
