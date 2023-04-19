@@ -74,11 +74,13 @@
 }:
 
 let
-  src = fetchFromGitHub {
-    owner = "solita";
-    repo = "tii-saca-ga-la";
-    rev = "5492cfeeda15fb3205d344f0dc0396f8e7aa798f";
-  };
+  # src = fetchFromGitHub {
+  #   owner = "solita";
+  #   repo = "tii-saca-ga-la";
+  #   rev = "5492cfeeda15fb3205d344f0dc0396f8e7aa798f";
+  # };
+
+  src = ./tii-saca-ga-la.zip;
 
   nodePackages = import ./node-composition.nix {
     inherit pkgs;
