@@ -152,7 +152,6 @@
     ];
   };
 in [
-  ./sshkeys.nix
   guivmPCIPassthroughModule
   guivmVirtioInputHostEvdevModule
   guivmExtraConfigurations
