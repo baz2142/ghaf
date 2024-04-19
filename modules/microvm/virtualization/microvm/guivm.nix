@@ -9,6 +9,12 @@
   configHost = config;
   vmName = "gui-vm";
   macAddress = "02:00:00:02:02:02";
+
+  sshKeysHelper = pkgs.callPackage ../../../../packages/ssh-keys-helper {
+    inherit pkgs;
+    inherit config;
+  };
+
   guivmBaseConfiguration = {
     imports = [
       (import ./common/vm-networking.nix {inherit vmName macAddress;})
@@ -40,28 +46,6 @@
           };
         };
 
-        systemd.services."waypipe-ssh-keygen" = let
-          keygenScript = pkgs.writeShellScriptBin "waypipe-ssh-keygen" ''
-            set -xeuo pipefail
-            mkdir -p /run/waypipe-ssh
-            echo -en "\n\n\n" | ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f /run/waypipe-ssh/id_ed25519 -C ""
-            chown ghaf:ghaf /run/waypipe-ssh/*
-            cp /run/waypipe-ssh/id_ed25519.pub /run/waypipe-ssh-public-key/id_ed25519.pub
-          '';
-        in {
-          enable = true;
-          description = "Generate SSH keys for Waypipe";
-          path = [keygenScript];
-          wantedBy = ["multi-user.target"];
-          serviceConfig = {
-            Type = "oneshot";
-            RemainAfterExit = true;
-            StandardOutput = "journal";
-            StandardError = "journal";
-            ExecStart = "${keygenScript}/bin/waypipe-ssh-keygen";
-          };
-        };
-
         environment = {
           systemPackages = [
             pkgs.waypipe
@@ -82,14 +66,16 @@
           hypervisor = "qemu";
           shares = [
             {
-              tag = "rw-waypipe-ssh-public-key";
-              source = configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir;
-              mountPoint = configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir;
-            }
-            {
               tag = "ro-store";
               source = "/nix/store";
               mountPoint = "/nix/.ro-store";
+            }
+
+            {
+              # Add the waypipe-ssh public key to the microvm
+              tag = configHost.ghaf.security.sshKeys.waypipeSshPublicKeyName;
+              source = configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir;
+              mountPoint = configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir;
             }
           ];
           writableStoreOverlay = lib.mkIf config.ghaf.development.debug.tools.enable "/nix/.rw-store";
@@ -99,6 +85,16 @@
             "vhost-vsock-pci,guest-cid=${toString cfg.vsockCID}"
           ];
         };
+
+        fileSystems.${configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir}.options = ["ro"];
+
+        # SSH is very picky about to file permissions and ownership and will
+        # accept neither direct path inside /nix/store or symlink that points
+        # there. Therefore we copy the file to /etc/ssh/get-auth-keys (by
+        # setting mode), instead of symlinking it.
+        environment.etc.${configHost.ghaf.security.sshKeys.getAuthKeysFilePathInEtc} = sshKeysHelper.getAuthKeysSource;
+
+        services.openssh = configHost.ghaf.security.sshKeys.sshAuthorizedKeysCommand;
 
         imports = [
           ../../../common
@@ -185,26 +181,6 @@ in {
             guivmBaseConfiguration.imports
             ++ cfg.extraModules;
         };
-    };
-
-    # This directory needs to be created before any of the microvms start.
-    systemd.services."create-waypipe-ssh-public-key-directory" = let
-      script = pkgs.writeShellScriptBin "create-waypipe-ssh-public-key-directory" ''
-        mkdir -pv ${configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir}
-        chown -v microvm ${configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir}
-      '';
-    in {
-      enable = true;
-      description = "Create shared directory on host";
-      path = [];
-      wantedBy = ["microvms.target"];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        StandardOutput = "journal";
-        StandardError = "journal";
-        ExecStart = "${script}/bin/create-waypipe-ssh-public-key-directory";
-      };
     };
 
     # Waypipe in GUIVM needs to communicate with AppVMs over VSOCK

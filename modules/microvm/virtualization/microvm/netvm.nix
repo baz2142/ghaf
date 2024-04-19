@@ -51,6 +51,29 @@
         # Add simple wi-fi connection helper
         environment.systemPackages = lib.mkIf config.ghaf.profiles.debug.enable [pkgs.wifi-connector];
 
+        systemd.services."waypipe-ssh-keygen" = let
+          keygenScript = pkgs.writeShellScriptBin "waypipe-ssh-keygen" ''
+            set -xeuo pipefail
+            mkdir -p /run/waypipe-ssh
+            echo -en "\n\n\n" | ${pkgs.openssh}/bin/ssh-keygen -t ed25519 -f /run/waypipe-ssh/id_ed25519 -C ""
+            cp /run/waypipe-ssh/id_ed25519.pub /run/waypipe-ssh-public-key/id_ed25519.pub
+            chown ghaf:ghaf /run/waypipe-ssh/*
+          '';
+        in {
+          enable = true;
+          description = "Generate SSH keys for Waypipe";
+          path = [keygenScript];
+          wantedBy = ["multi-user.target"];
+
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            StandardOutput = "journal";
+            StandardError = "journal";
+            ExecStart = "${keygenScript}/bin/waypipe-ssh-keygen";
+          };
+        };
+
         # Dnsmasq is used as a DHCP/DNS server inside the NetVM
         services.dnsmasq = {
           enable = true;
@@ -102,8 +125,7 @@
             }
 
             {
-              # Add the waypipe-ssh public key to the microvm
-              tag = configHost.ghaf.security.sshKeys.waypipeSshPublicKeyName;
+              tag = "rw-waypipe-ssh-public-key";
               source = configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir;
               mountPoint = configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir;
             }
@@ -150,6 +172,26 @@ in {
             netvmBaseConfiguration.imports
             ++ cfg.extraModules;
         };
+    };
+
+    # This directory needs to be created before any of the microvms start.
+    systemd.services."create-waypipe-ssh-public-key-directory" = let
+      script = pkgs.writeShellScriptBin "create-waypipe-ssh-public-key-directory" ''
+        mkdir -pv ${configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir}
+        chown -v microvm ${configHost.ghaf.security.sshKeys.waypipeSshPublicKeyDir}
+      '';
+    in {
+      enable = true;
+      description = "Create shared directory on host";
+      path = [];
+      wantedBy = ["microvms.target"];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        StandardOutput = "journal";
+        StandardError = "journal";
+        ExecStart = "${script}/bin/create-waypipe-ssh-public-key-directory";
+      };
     };
   };
 }
